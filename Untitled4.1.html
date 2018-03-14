@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>JSSample</title>
+        <script src="https://ajax.googleapis.com/ajax/libs/jquery/1.9.0/jquery.min.js"></script>
+        <script src="./dist/cytoscape.min.js"></script>
+    </head>
+    
+    <style>
+        #cy{
+            width: 100%;
+            height: 90%;
+            position: absolute;
+            margin: 20px auto;
+            border: 1px solid #cccccc;
+        }
+    </style>
+    
+    <body>
+    <form>
+        <div>
+            <label for="Title">ReferenceTitle:</label><br />
+            <input id="Title" type="text" size="30" />
+            <input id="search" type="button" value="search" />
+        </div>
+    </form>
+    
+    <div id="cy"></div>
+    
+    <script type="text/javascript">
+        function getReferences(expr,count){
+            var returndata;
+            var params = {
+                
+                "expr": expr,
+                "model": "latest",
+                "count": count,
+                "offset": "0",
+                "attributes": "Id,RId,ECC,Y,Ti,AA.AuN",
+            };
+            //console.log(params);
+            $.ajax({
+                url: "https://api.labs.cognitive.microsoft.com/academic/v1.0/evaluate",// + $.param(params),
+                beforeSend: function(xhrObj){
+                    xhrObj.setRequestHeader("Content-Type","application/x-www-form-urlencoded");
+                    xhrObj.setRequestHeader("Ocp-Apim-Subscription-Key","6a48f3e5f7994db09dad399aeae37012");
+                },
+                type: "POST",
+                async: false,
+                data: $.param(params),
+                timeout: 10000,
+            })
+            .then(function(data){
+                //console.log("success");
+                //console.log(data);
+                //console.log(data.entities);
+                returndata=data.entities;
+            })
+            .fail(function(){
+                //console.log("error");
+            });
+            return returndata;
+        }
+        function shapeInputId(key,item){
+            var expr='';
+            for(var i of item){
+                expr=expr+key+"="+i+",";
+            }
+            expr="Or("+expr.slice(0,-1)+")";
+            return(expr);
+        }
+        function shapeTitleData(Title){
+            Title=Title.toLowerCase();
+            Title="Ti='"+Title+"'";
+            return(Title);
+        }
+        function getAllRIdList(data){
+            //console.log(data);
+            var allRId=[];
+            for(var i in data){
+                allRId=allRId.concat(data[i].RId);
+            }
+            //console.log(allRId);
+            allRId = allRId.filter((x, i, self) => self.indexOf(x) === i);
+            allRId = allRId.filter(v => v);
+            //console.log(allRId);
+            return(allRId);
+        }
+        function getRIdfromId(allJSON,newdata,rank){
+            if(rank!=0){
+                var allRId=getAllRIdList(newdata);
+                var expr=shapeInputId("Id",allRId);
+                var data=getReferences(expr,10000);
+                allJSON=allJSON.concat(data);
+                return getRIdfromId(allJSON,data,rank-1);
+            }
+            else{
+                return allJSON;
+            }
+        }
+        
+        function add_ECC_per_year(allJSON){
+            var now=new Date();
+            var year=now.getFullYear();
+            for(var i of allJSON){
+                i["ECC_per_year"]=i.ECC/(year-i.Y);
+            }
+            return allJSON;
+        }
+        
+        $('#search').click(function(){
+            var Title=$('#Title').val();
+            var rank=1;//=Number($('#rank').val());
+            var expr=shapeTitleData(Title);
+            //console.log(expr);
+            var allJSON=[];
+            var data=getReferences(expr,1);
+            allJSON=allJSON.concat(data);
+            //console.log(data);
+            allJSON=getRIdfromId(allJSON,allJSON,rank);
+            //console.log(allJSON);
+            allJSON=add_ECC_per_year(allJSON);
+            showCytoscape(allJSON);
+        });
+        function showCytoscape(JSONdata){
+            function replaceKey(allJSON,before_key,after_key){
+                var string_allJSON=JSON.stringify(allJSON);
+                var regexp=new RegExp("\""+before_key+"\":","g");
+                string_allJSON=string_allJSON.replace(regexp,"\""+after_key+"\":");
+                var after_allJSON=JSON.parse(string_allJSON);
+                return after_allJSON;
+            }
+            var cy=cytoscape({
+                container:document.getElementById('cy'),
+                style:[{
+                    selector:'node',
+                    style:{
+                        shape:'circle',
+                        'background-color':'red',
+                        label:'data(Ti)',
+                        width:'mapData(ECC_per_year,0,1000,20,60)',
+                        height:'mapData(ECC_per_year,0,1000,20,60)'
+                    }
+                },
+                {
+                    selector:'edge',
+                    style:{
+                        'width':3,
+                        'line-color':'#ccc',
+                        /*'source-arrow-color':'#ccc',
+                        'source-arrow-shape':'triangle',
+                        'arrow-scale':10*/
+                    }
+                }],
+                minZoom:0.1,
+                maxZoom:10
+            });
+            JSONdata=replaceKey(JSONdata,"Id","id");
+            for(var i of JSONdata){
+                
+                cy.add({
+                    data:i
+                });
+            }
+            var idlist=JSONdata.map(function(p){
+                return p.id;
+            });
+            //console.log(idlist);
+            for(var x of JSONdata){
+                var source=x.id;
+                if("RId" in x){
+                    for(var j of x.RId){
+                        //console.log(j);
+                        if(idlist.indexOf(String(j))>=0){
+                            //console.log("hit"+j);
+                            cy.add({
+                                data:{
+                                    id:source+"to"+j,
+                                    source:source,
+                                    target:j
+                                }
+                            });
+                        }
+                        else;
+                    }    
+                }
+                else;
+            }
+            cy.layout({
+                name: 'concentric',
+                concentric:function(n){
+                    return n.degree();
+                },
+                levelWidth:function(nodes){
+                    return 4;
+                }
+            }).run();
+        }
+    </script>
+    </body>
+</html>
