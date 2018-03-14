@@ -1,2 +1,2 @@
 # 論文引用の可視化
-このコンテンツはcytoscape.jsが必要です
+このコンテンツはcytoscape.jsとMicrosoftAcademicKnowlwdge_APIkeyが必要です。
